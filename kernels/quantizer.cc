@@ -1,58 +1,58 @@
 #include <cassert>
 
-#ifdef QM_ARM
-#include <arm_neon.h>
-void quantize_fp32_to_int8(float* A, int8_t* qA, float* sA, int size, int block_size) {
-    assert(size % block_size == 0);
-    assert(block_size == 32);
-    int num_block = size / 32;
-
-    for (int i = 0; i < num_block; i++) {
-        float32x4_t srcv[8];
-        float32x4_t asrcv[8];
-        float32x4_t amaxv[8];
-
-        int8_t* start_qA = &qA[i * 32];
-
-        for (int l = 0; l < 8; l++) srcv[l] = vld1q_f32(A + i * 32 + 4 * l);
-        for (int l = 0; l < 8; l++) asrcv[l] = vabsq_f32(srcv[l]);
-
-        for (int l = 0; l < 4; l++) amaxv[2 * l] = vmaxq_f32(asrcv[2 * l], asrcv[2 * l + 1]);
-        for (int l = 0; l < 2; l++) amaxv[4 * l] = vmaxq_f32(amaxv[4 * l], amaxv[4 * l + 2]);
-        for (int l = 0; l < 1; l++) amaxv[8 * l] = vmaxq_f32(amaxv[8 * l], amaxv[8 * l + 4]);
-
-        const float amax = vmaxvq_f32(amaxv[0]);
-
-        const float d = amax / ((1 << 7) - 1);
-        const float id = d ? 1.0f / d : 0.0f;
-
-        sA[i] = d;
-
-        // low half
-        for (int l = 0; l < 4; l++) {
-            const float32x4_t v = vmulq_n_f32(srcv[l], id);
-            const int32x4_t vi = vcvtnq_s32_f32(v);
-
-            start_qA[4 * l + 0] = vgetq_lane_s32(vi, 0);
-            start_qA[4 * l + 1] = vgetq_lane_s32(vi, 1);
-            start_qA[4 * l + 2] = vgetq_lane_s32(vi, 2);
-            start_qA[4 * l + 3] = vgetq_lane_s32(vi, 3);
-        }
-
-        // high half
-        for (int l = 4; l < 8; l++) {
-            const float32x4_t v = vmulq_n_f32(srcv[l], id);
-            const int32x4_t vi = vcvtnq_s32_f32(v);
-
-            start_qA[4 * l + 0] = vgetq_lane_s32(vi, 0);
-            start_qA[4 * l + 1] = vgetq_lane_s32(vi, 1);
-            start_qA[4 * l + 2] = vgetq_lane_s32(vi, 2);
-            start_qA[4 * l + 3] = vgetq_lane_s32(vi, 3);
-        }
-    }
-}
-#endif
-#ifdef QM_x86
+// #ifdef QM_ARM
+// #include <arm_neon.h>
+// void quantize_fp32_to_int8(float* A, int8_t* qA, float* sA, int size, int block_size) {
+//     assert(size % block_size == 0);
+//     assert(block_size == 32);
+//     int num_block = size / 32;
+// 
+//     for (int i = 0; i < num_block; i++) {
+//         float32x4_t srcv[8];
+//         float32x4_t asrcv[8];
+//         float32x4_t amaxv[8];
+// 
+//         int8_t* start_qA = &qA[i * 32];
+// 
+//         for (int l = 0; l < 8; l++) srcv[l] = vld1q_f32(A + i * 32 + 4 * l);
+//         for (int l = 0; l < 8; l++) asrcv[l] = vabsq_f32(srcv[l]);
+// 
+//         for (int l = 0; l < 4; l++) amaxv[2 * l] = vmaxq_f32(asrcv[2 * l], asrcv[2 * l + 1]);
+//         for (int l = 0; l < 2; l++) amaxv[4 * l] = vmaxq_f32(amaxv[4 * l], amaxv[4 * l + 2]);
+//         for (int l = 0; l < 1; l++) amaxv[8 * l] = vmaxq_f32(amaxv[8 * l], amaxv[8 * l + 4]);
+// 
+//         const float amax = vmaxvq_f32(amaxv[0]);
+// 
+//         const float d = amax / ((1 << 7) - 1);
+//         const float id = d ? 1.0f / d : 0.0f;
+// 
+//         sA[i] = d;
+// 
+//         // low half
+//         for (int l = 0; l < 4; l++) {
+//             const float32x4_t v = vmulq_n_f32(srcv[l], id);
+//             const int32x4_t vi = vcvtnq_s32_f32(v);
+// 
+//             start_qA[4 * l + 0] = vgetq_lane_s32(vi, 0);
+//             start_qA[4 * l + 1] = vgetq_lane_s32(vi, 1);
+//             start_qA[4 * l + 2] = vgetq_lane_s32(vi, 2);
+//             start_qA[4 * l + 3] = vgetq_lane_s32(vi, 3);
+//         }
+// 
+//         // high half
+//         for (int l = 4; l < 8; l++) {
+//             const float32x4_t v = vmulq_n_f32(srcv[l], id);
+//             const int32x4_t vi = vcvtnq_s32_f32(v);
+// 
+//             start_qA[4 * l + 0] = vgetq_lane_s32(vi, 0);
+//             start_qA[4 * l + 1] = vgetq_lane_s32(vi, 1);
+//             start_qA[4 * l + 2] = vgetq_lane_s32(vi, 2);
+//             start_qA[4 * l + 3] = vgetq_lane_s32(vi, 3);
+//         }
+//     }
+// }
+// #endif
+// #ifdef QM_x86
 #include <immintrin.h>
 void quantize_fp32_to_int8(float* A, int8_t* qA, float* sA, int size, int block_size) {
     int nb = size / 32;
@@ -62,7 +62,7 @@ void quantize_fp32_to_int8(float* A, int8_t* qA, float* sA, int size, int block_
         __m256 v1 = _mm256_loadu_ps(A + 8);
         __m256 v2 = _mm256_loadu_ps(A + 16);
         __m256 v3 = _mm256_loadu_ps(A + 24);
-        A += 32;
+        A += 32; // group quantize, 32 elements as a group??
 
         // Compute max(abs(e)) for the block
         const __m256 signBit = _mm256_set1_ps(-0.0f);
@@ -117,4 +117,4 @@ void quantize_fp32_to_int8(float* A, int8_t* qA, float* sA, int size, int block_
         qA += 32;
     }
 }
-#endif
+// #endif

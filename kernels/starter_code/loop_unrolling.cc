@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 
 #include "../matmul.h"
@@ -40,32 +41,32 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 float s_w1 = params->scales[((col + 1) * k + ch) / block_size];
                 float s_w2 = params->scales[((col + 2) * k + ch) / block_size];
                 float s_w3 = params->scales[((col + 3) * k + ch) / block_size];
-#ifdef QM_ARM
-                // order of weights with QM_ARM:
-                // origin order: (w0,w1), (w2,w3), (w4,w5), (w6,w7), (w8, w9), ... (w30,w31)
-                // QM_ARM order: (w0,w16),(w1,w17),(w2,w18),(w3,w19),(w4, w20),... (w15,w31)
-                //               |--|
-                //               4 bits
-                //               |------|
-                //               8 bits (byte)
-                //            low|----------------------------------------------------------|high
-                //               0                         128 bit                         127
-                // process 16 bytes of weigths (128 bit) = 1 block for each of unrolled `col`
-                // intermediate variable to store sum of integer multiplication and accumulation
-                int intermediate_sum0 = 0, intermediate_sum1 = 0, intermediate_sum2 = 0, intermediate_sum3 = 0;
-                for (int qj = 0; qj < 16; qj++) {
-                    // TODO: decode a packed byte into two int8 in the range of (-8, 7)
-
-                    // TODO: int8 multiply and accumulate operation
-                }
-                // dequantize the sum into floating point
-                acc0 += (float)intermediate_sum0 * s_a * s_w0;
-                acc1 += (float)intermediate_sum1 * s_a * s_w1;
-                acc2 += (float)intermediate_sum2 * s_a * s_w2;
-                acc3 += (float)intermediate_sum3 * s_a * s_w3;
-                ch += block_size;
-#endif
-#ifdef QM_x86
+// #ifdef QM_ARM
+//                 // order of weights with QM_ARM:
+//                 // origin order: (w0,w1), (w2,w3), (w4,w5), (w6,w7), (w8, w9), ... (w30,w31)
+//                 // QM_ARM order: (w0,w16),(w1,w17),(w2,w18),(w3,w19),(w4, w20),... (w15,w31)
+//                 //               |--|
+//                 //               4 bits
+//                 //               |------|
+//                 //               8 bits (byte)
+//                 //            low|----------------------------------------------------------|high
+//                 //               0                         128 bit                         127
+//                 // process 16 bytes of weigths (128 bit) = 1 block for each of unrolled `col`
+//                 // intermediate variable to store sum of integer multiplication and accumulation
+//                 int intermediate_sum0 = 0, intermediate_sum1 = 0, intermediate_sum2 = 0, intermediate_sum3 = 0;
+//                 for (int qj = 0; qj < 16; qj++) {
+//                     // TODO: decode a packed byte into two int8 in the range of (-8, 7)
+// 
+//                     // TODO: int8 multiply and accumulate operation
+//                 }
+//                 // dequantize the sum into floating point
+//                 acc0 += (float)intermediate_sum0 * s_a * s_w0;
+//                 acc1 += (float)intermediate_sum1 * s_a * s_w1;
+//                 acc2 += (float)intermediate_sum2 * s_a * s_w2;
+//                 acc3 += (float)intermediate_sum3 * s_a * s_w3;
+//                 ch += block_size;
+// #endif
+// #ifdef QM_x86
                 // scales of the second block
                 float s_w0_2nd = params->scales[(col * k + ch) / block_size + 1];
                 float s_w1_2nd = params->scales[((col + 1) * k + ch) / block_size + 1];
@@ -88,8 +89,31 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                     intermediate_sum3_2nd = 0;
                 for (int qj = 0; qj < 32; qj++) {
                     // TODO: decode a packed byte into two int8 in the range of (-8, 7)
+                    uint8_t packed_int4_0 = w0_int4[qj];
+                    uint8_t packed_int4_1 = w1_int4[qj];
+                    uint8_t packed_int4_2 = w2_int4[qj];
+                    uint8_t packed_int4_3 = w3_int4[qj];
 
                     // TODO: int8 multiply and accumulate operation
+                    signed char w_de_0 =  (packed_int4_0 & 0x0F) - 8.0;
+                    signed char w_de_16 = (packed_int4_0 >> 4) - 8.0;
+                    intermediate_sum0 += a_int8[qj] * w_de_0;
+                    intermediate_sum0_2nd += a_int8[qj + 32] * w_de_16;
+
+                    w_de_0 =  (packed_int4_1 & 0x0F) - 8.0;
+                    w_de_16 = (packed_int4_1 >> 4) - 8.0;
+                    intermediate_sum1 += a_int8[qj] * w_de_0;
+                    intermediate_sum1_2nd += a_int8[qj + 32] * w_de_16;
+
+                    w_de_0 =  (packed_int4_2 & 0x0F) - 8.0;
+                    w_de_16 = (packed_int4_2 >> 4) - 8.0;
+                    intermediate_sum2 += a_int8[qj] * w_de_0;
+                    intermediate_sum2_2nd += a_int8[qj + 32] * w_de_16;
+
+                    w_de_0 =  (packed_int4_3 & 0x0F) - 8.0;
+                    w_de_16 = (packed_int4_3 >> 4) - 8.0;
+                    intermediate_sum3 += a_int8[qj] * w_de_0;
+                    intermediate_sum3_2nd += a_int8[qj + 32] * w_de_16;
                 }
                 // dequantize the sum into floating point
                 acc0 += (float)intermediate_sum0 * s_a * s_w0;
@@ -102,7 +126,7 @@ void MatmulOperator::mat_mul_loop_unrolling(struct matmul_params *params) {
                 acc3 += (float)intermediate_sum3_2nd * s_a_2nd * s_w3_2nd;
                 // process two blocks
                 ch += block_size * 2;
-#endif
+// #endif
             }
             C->data_ptr[row * n + col] = acc0;
             C->data_ptr[row * n + col + 1] = acc1;

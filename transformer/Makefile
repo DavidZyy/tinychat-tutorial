@@ -1,7 +1,8 @@
 # Compiler and flags
 CXX = g++
 CXXFLAGS = -std=c++11 -pthread -g -O0 -w
-CXXFLAGS += -DIMP=$(IMP)
+# CXXFLAGS += -DIMP=$(IMP)
+CXXFLAGS += -DIMP=all_techniques
 
 # Executable and source files
 TEST_TARGET = test_linear

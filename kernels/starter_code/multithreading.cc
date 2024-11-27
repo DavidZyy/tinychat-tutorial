@@ -32,34 +32,34 @@ static void* multithreading_worker_func(void* args) {
                 float s_w = params->scales[(col * k + ch) / block_size];
                 // scale of activation
                 float s_a = params->A_scales[(row * k + ch) / block_size];
-#ifdef QM_ARM
-                // order of weights with QM_ARM:
-                // origin order: (w0,w1), (w2,w3), (w4,w5), (w6,w7), (w8, w9), ... (w30,w31)
-                // QM_ARM order: (w0,w16),(w1,w17),(w2,w18),(w3,w19),(w4, w20),... (w15,w31)
-                //               |--|
-                //               4 bits
-                //               |------|
-                //               8 bits (byte)
-                //            low|----------------------------------------------------------|high
-                //               0                         128 bit                         127
-                // process 16 bytes of weigths (128 bit) = 1 block
-                // intermediate variable to store sum of integer multiplication and accumulation
-                int intermediate_sum = 0;
-                // process 16 bytes of weigths (128 bit)
-                for (int qj = 0; qj < 16; qj++) {
-                    // decode a packed byte into two int8 in the range of (-8, 7)
-                    uint8_t packed_int4_0 = w_int4[qj];
-                    signed char w_de_0 = (packed_int4_0 & 0x0F) - 8.0;
-                    signed char w_de_16 = (packed_int4_0 >> 4) - 8.0;
-                    // int8 multiply and accumulate operation
-                    intermediate_sum += a_int8[qj] * w_de_0;
-                    intermediate_sum += a_int8[qj + 16] * w_de_16;
-                }
-                // dequantize the sum into floating point
-                acc += (float)intermediate_sum * s_a * s_w;
-                ch += block_size;
-#endif
-#ifdef QM_x86
+// #ifdef QM_ARM
+//                 // order of weights with QM_ARM:
+//                 // origin order: (w0,w1), (w2,w3), (w4,w5), (w6,w7), (w8, w9), ... (w30,w31)
+//                 // QM_ARM order: (w0,w16),(w1,w17),(w2,w18),(w3,w19),(w4, w20),... (w15,w31)
+//                 //               |--|
+//                 //               4 bits
+//                 //               |------|
+//                 //               8 bits (byte)
+//                 //            low|----------------------------------------------------------|high
+//                 //               0                         128 bit                         127
+//                 // process 16 bytes of weigths (128 bit) = 1 block
+//                 // intermediate variable to store sum of integer multiplication and accumulation
+//                 int intermediate_sum = 0;
+//                 // process 16 bytes of weigths (128 bit)
+//                 for (int qj = 0; qj < 16; qj++) {
+//                     // decode a packed byte into two int8 in the range of (-8, 7)
+//                     uint8_t packed_int4_0 = w_int4[qj];
+//                     signed char w_de_0 = (packed_int4_0 & 0x0F) - 8.0;
+//                     signed char w_de_16 = (packed_int4_0 >> 4) - 8.0;
+//                     // int8 multiply and accumulate operation
+//                     intermediate_sum += a_int8[qj] * w_de_0;
+//                     intermediate_sum += a_int8[qj + 16] * w_de_16;
+//                 }
+//                 // dequantize the sum into floating point
+//                 acc += (float)intermediate_sum * s_a * s_w;
+//                 ch += block_size;
+// #endif
+// #ifdef QM_x86
                 // scales of the second block
                 float s_w_2nd = params->scales[(col * k + ch) / block_size + 1];
                 float s_a_2nd = params->A_scales[(row * k + ch) / block_size + 1];
@@ -88,7 +88,7 @@ static void* multithreading_worker_func(void* args) {
                 acc += (float)intermediate_sum * s_a * s_w;
                 acc += (float)intermediate_sum_2nd * s_a_2nd * s_w_2nd;
                 ch += block_size * 2;
-#endif
+// #endif
             }
             C->data_ptr[row * n + col] = acc;
         }
@@ -105,12 +105,42 @@ void MatmulOperator::mat_mul_multithreading(struct matmul_params* params) {
 
     int m = C->row, n = C->column, k = A->column;
 
-    const int num_thread = 4;
+    const int num_thread = 8;
     pthread_t thread_pool[num_thread];
     struct multithreading_thread_args threads_args[num_thread];
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Divide the work among threads
+    int columns_per_thread = n / num_thread;
+    int remaining_columns = n % num_thread;
+
     // TODO: Thread creation
+    for (int i = 0; i < num_thread; ++i) {
+        threads_args[i].start = i * columns_per_thread;
+        threads_args[i].end = threads_args[i].start + columns_per_thread;
+        threads_args[i].params = params;
+
+        // Distribute the remaining columns to the last thread
+        if (i == num_thread - 1) {
+            threads_args[i].end += remaining_columns;
+        }
+
+        // Create the thread
+        int ret = pthread_create(&thread_pool[i], NULL, multithreading_worker_func, &threads_args[i]);
+        if (ret != 0) {
+            perror("pthread_create failed");
+            exit(EXIT_FAILURE);
+        }
+    }
 
     // TODO: Join threads
+    for (int i = 0; i < num_thread; ++i) {
+        int ret = pthread_join(thread_pool[i], NULL);
+        if (ret != 0) {
+            perror("pthread_join failed");
+            exit(EXIT_FAILURE);
+        }
+    }
+///////////////////////////////////////////////////////////////////////////////////////////////////////
 };
 }  // namespace matmul

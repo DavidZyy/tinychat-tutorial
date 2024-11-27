@@ -16,7 +16,7 @@
 .swiftpm
 .venv
 .vs/
-.vscode/
+# .vscode/
 
 assets/
 *.bin
@@ -30,3 +30,6 @@ demo
 profile_*
 !profile_*.cc
 libtorch/
+
+build
+chat
